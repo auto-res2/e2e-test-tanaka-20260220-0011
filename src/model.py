@@ -134,6 +134,24 @@ class T5InferenceModel:
         """
         assert len(prompts) == len(completions), "Must have same number of prompts and completions"
         
+        # [VALIDATOR FIX - Attempt 1]
+        # [PROBLEM]: AttributeError: T5Tokenizer has no attribute as_target_tokenizer
+        # [CAUSE]: as_target_tokenizer() was removed in transformers 5.x. For T5 models,
+        #          the tokenizer handles both encoder and decoder inputs directly.
+        # [FIX]: Remove the as_target_tokenizer() context manager and tokenize labels directly.
+        #
+        # [OLD CODE]:
+        # with self.tokenizer.as_target_tokenizer():
+        #     labels = self.tokenizer(
+        #         completions,
+        #         return_tensors="pt",
+        #         padding=True,
+        #         truncation=True,
+        #         max_length=256
+        #     ).input_ids.to(self.device)
+        #
+        # [NEW CODE]:
+        
         # Tokenize inputs
         input_ids = self.tokenizer(
             prompts,
@@ -143,15 +161,15 @@ class T5InferenceModel:
             max_length=512
         ).input_ids.to(self.device)
         
-        # Tokenize targets
-        with self.tokenizer.as_target_tokenizer():
-            labels = self.tokenizer(
-                completions,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=256
-            ).input_ids.to(self.device)
+        # Tokenize targets (decoder inputs)
+        # For T5, the tokenizer can be used directly for both encoder and decoder
+        labels = self.tokenizer(
+            completions,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=256
+        ).input_ids.to(self.device)
         
         # Replace padding token id with -100 so they're ignored in loss
         labels[labels == self.tokenizer.pad_token_id] = -100
