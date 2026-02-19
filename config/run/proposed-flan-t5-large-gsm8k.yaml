@@ -1,7 +1,25 @@
 # Run configuration for DT-SEACoT (proposed method)
 # Decision-Theoretic, Self-Entailed Adaptive Chain-of-Thought
 
-# [VALIDATOR FIX - Attempt 1]
+# [VALIDATOR FIX - Attempt 2]
+# [PROBLEM]: Missing mandatory value: inference.method
+# [CAUSE]: Config group files place their top-level keys under the group namespace (cfg.run),
+#          but the code expects inference and optuna at the root level (cfg.inference, cfg.optuna).
+#          Without a package directive, Hydra places all keys from this file under cfg.run.
+# [FIX]: Add "# @package _global_" directive to place the config contents at root level,
+#        AND wrap run-specific fields (run_id, method_type, etc.) under a 'run:' key
+#        so they end up at cfg.run.* where the code expects them.
+#
+# [OLD CODE]:
+# (no package directive)
+# run_id: proposed-flan-t5-large-gsm8k
+# method_type: proposed
+# ...
+#
+# [NEW CODE]:
+# @package _global_
+
+# [VALIDATOR FIX - Attempt 1 - REVERSED by Attempt 2]
 # [PROBLEM]: ConfigAttributeError: Key 'run_id' is not in struct (cfg.run.run_id)
 # [CAUSE]: When Hydra loads a config group file from 'config/run/', it merges the 
 #          TOP-LEVEL keys from that file into the config under the group name.
@@ -9,6 +27,7 @@
 #          instead of cfg.run directly containing run_id.
 # [FIX]: Removed the 'run:' wrapper so the fields (run_id, method_type, etc.) 
 #        are at the top level of this file and get placed directly under cfg.run
+# NOTE: This fix is now reversed by Attempt 2 which uses @package _global_
 #
 # [OLD CODE]:
 # run:
@@ -17,11 +36,12 @@
 #   method_name: DT-SEACoT
 #   description: "Decision-Theoretic, Self-Entailed Adaptive CoT with value-aware gating and self-entailment weighting"
 #
-# [NEW CODE]:
-run_id: proposed-flan-t5-large-gsm8k
-method_type: proposed
-method_name: DT-SEACoT
-description: "Decision-Theoretic, Self-Entailed Adaptive CoT with value-aware gating and self-entailment weighting"
+# [NEW CODE (restored with @package _global_)]:
+run:
+  run_id: proposed-flan-t5-large-gsm8k
+  method_type: proposed
+  method_name: DT-SEACoT
+  description: "Decision-Theoretic, Self-Entailed Adaptive CoT with value-aware gating and self-entailment weighting"
 
 # Inference configuration
 inference:

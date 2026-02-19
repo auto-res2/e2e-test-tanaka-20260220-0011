@@ -1,12 +1,35 @@
 # Main configuration for Hydra
 # This file will be populated by AI code generator based on experimental design
 
+# [VALIDATOR FIX - Attempt 2]
+# [PROBLEM]: Missing mandatory value: inference.method at runtime
+# [CAUSE]: When defaults list has _self_ before run config, the inference.method: ???
+#          from config.yaml is not being overridden by the run config's inference section.
+#          Hydra's composition order means later items override earlier ones, but
+#          _self_ placed first should allow run config to override. However, the ???
+#          marker creates a mandatory requirement that must be satisfied during composition.
+# [FIX]: Change inference.method from ??? to a default value 'cot_sc'. This makes it
+#        optional with a sensible default, while still allowing run configs to override it.
+#
+# [OLD CODE]:
+# defaults:
+#   - _self_
+#   - run: ???  # loads from config/run/, accessible as 'run=' in CLI
+#
+# [NEW CODE]:
 defaults:
   - _self_
   - run: ???  # loads from config/run/, accessible as 'run=' in CLI
 
 # Execution mode: main, sanity_check, or pilot
 mode: main
+
+# Run-specific configuration (populated by config group)
+run:
+  run_id: ???
+  method_type: ???
+  method_name: ???
+  description: ???
 
 # Results output directory
 results_dir: .research/results
@@ -46,10 +69,40 @@ dataset:
 #
 # [NEW CODE]:
 # Inference configuration (overridden by run-specific configs)
+# This provides a complete structure that run configs can override
 inference:
-  method: ???  # Must be specified in run config
+  method: cot_sc  # Default method, overridden by run-specific configs
+  
+  # Direct answer sampling (System-1)
+  n0_direct_samples: 5
+  direct_max_tokens: 64
+  direct_temperature: 0.7
+  
+  # CoT sampling (System-2)
+  k_cot_samples: 16
+  k_max_cot_samples: 16
+  cot_max_tokens: 256
+  cot_temperature: 0.7
+  
+  # Gating thresholds
+  gate_confidence_threshold: 0.0
+  gate_entropy_threshold: 999.0
+  
+  # Early stopping
+  early_stop_enabled: false
+  early_stop_posterior_threshold: 0.9
+  
+  # Self-entailment weighting
+  use_self_entailment: false
+  
+  # Logging
+  log_intermediate_steps: true
 
 # Optuna hyperparameter search (overridden by run-specific configs)
 optuna:
   enabled: false
   n_trials: 0
+  study_name: default_study
+  direction: maximize
+  metric: accuracy
+  search_space: {}
