@@ -81,8 +81,8 @@ inference:
   # CoT sampling (System-2)
   k_cot_samples: 16
   k_max_cot_samples: 16
-  cot_max_tokens: 256
-  cot_temperature: 0.7
+  cot_max_tokens: 384
+  cot_temperature: 0.5
   
   # Gating thresholds
   gate_confidence_threshold: 0.0

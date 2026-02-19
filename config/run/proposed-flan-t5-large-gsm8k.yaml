@@ -54,10 +54,24 @@ inference:
   direct_max_tokens: 64
   direct_temperature: 0.7
   
-  # System-2 (CoT) parameters
+  # [VALIDATOR FIX - Attempt 2]
+  # [PROBLEM]: 4.67% accuracy indicates poor mathematical reasoning quality
+  # [CAUSE]: High temperature (0.7) for CoT may cause hallucinations and errors in multi-step math.
+  #          For arithmetic reasoning, lower temperature typically improves accuracy by reducing
+  #          random errors in calculation steps.
+  # [FIX]: Increase cot_max_tokens to allow more room for step-by-step reasoning, and lower
+  #        initial temperature guess for Optuna to explore lower-temperature regions.
+  #
+  # [OLD CODE]:
+  # k_max_cot_samples: 16
+  # cot_max_tokens: 256
+  # cot_temperature: 0.7
+  #
+  # [NEW CODE]:
+  # System-2 (CoT) parameters  
   k_max_cot_samples: 16
-  cot_max_tokens: 256
-  cot_temperature: 0.7
+  cot_max_tokens: 384  # More tokens for step-by-step reasoning
+  cot_temperature: 0.5  # Lower temperature for more accurate math
   
   # Value-aware gating thresholds
   gate_confidence_threshold: 0.8  # Skip deliberation if System-1 is confident
@@ -79,6 +93,25 @@ optuna:
   n_trials: 20
   study_name: dt_seacot_gsm8k_tuning
   
+  # [VALIDATOR FIX - Attempt 2]
+  # [PROBLEM]: 4.67% accuracy, best tuning trial only 6%
+  # [CAUSE]: Search space for temperatures may be too high for accurate math reasoning.
+  #          Lower temperatures (0.1-0.5) typically work better for arithmetic tasks.
+  # [FIX]: Narrow temperature search range to favor lower, more deterministic generations
+  #
+  # [OLD CODE]:
+  # search_space:
+  #   gate_confidence_threshold: ...
+  #   direct_temperature:
+  #     type: float
+  #     low: 0.5
+  #     high: 1.0
+  #   cot_temperature:
+  #     type: float
+  #     low: 0.5
+  #     high: 1.0
+  #
+  # [NEW CODE]:
   # Parameters to optimize
   search_space:
     gate_confidence_threshold:
@@ -95,12 +128,12 @@ optuna:
       high: 0.95
     direct_temperature:
       type: float
-      low: 0.5
-      high: 1.0
+      low: 0.3
+      high: 0.7
     cot_temperature:
       type: float
-      low: 0.5
-      high: 1.0
+      low: 0.1
+      high: 0.6
   
   # Optimization objective
   direction: maximize
