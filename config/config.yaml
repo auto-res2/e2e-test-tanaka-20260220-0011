@@ -24,6 +24,20 @@ defaults:
 # Execution mode: main, sanity_check, or pilot
 mode: main
 
+# [VALIDATOR FIX - Attempt 1]
+# [PROBLEM]: ConfigAttributeError: Key 'use_val_split' is not in struct
+# [CAUSE]: Line 146 in src/main.py sets cfg.use_val_split = True, but OmegaConf is in
+#          struct mode and this key doesn't exist in the base config structure.
+# [FIX]: Add use_val_split to the base config.yaml so it exists in the struct and can
+#        be modified at runtime.
+#
+# [OLD CODE]:
+# (no use_val_split field)
+#
+# [NEW CODE]:
+# Control whether to use validation split (for hyperparameter tuning) or test split
+use_val_split: false
+
 # Run-specific configuration (populated by config group)
 run:
   run_id: ???
