@@ -1,0 +1,44 @@
+# Run configuration for baseline method
+# Fixed-K CoT Self-Consistency (SC)
+
+run:
+  run_id: comparative-1-flan-t5-large-gsm8k
+  method_type: comparative-1
+  method_name: CoT-SC
+  description: "Fixed-K Chain-of-Thought with Self-Consistency (plurality voting baseline)"
+
+# Inference configuration
+inference:
+  method: cot_sc
+  
+  # Fixed-budget CoT self-consistency parameters
+  k_cot_samples: 16  # Same budget as DT-SEACoT's max
+  cot_max_tokens: 256
+  cot_temperature: 0.7
+  
+  # No gating or early stopping for baseline
+  gate_confidence_threshold: 0.0  # Always run full CoT
+  early_stop_enabled: false
+  
+  # Simple plurality voting (no self-entailment weighting)
+  use_self_entailment: false
+  
+  # Logging
+  log_intermediate_steps: true
+
+# Optuna hyperparameter search
+optuna:
+  enabled: true
+  n_trials: 20
+  study_name: cot_sc_gsm8k_tuning
+  
+  # Parameters to optimize
+  search_space:
+    cot_temperature:
+      type: float
+      low: 0.5
+      high: 1.0
+  
+  # Optimization objective
+  direction: maximize
+  metric: accuracy

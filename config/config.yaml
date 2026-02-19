@@ -11,8 +11,24 @@ mode: main
 # Results output directory
 results_dir: .research/results
 
-# WandB configuration (will be set by AI agent)
+# WandB configuration
 wandb:
-  entity: ???
-  project: ???
+  entity: airas
+  project: 2026-02-19
   mode: online
+
+# Model configuration
+model:
+  name: google/flan-t5-large
+  dtype: bfloat16
+  device: cuda
+  cache_dir: .cache/
+
+# Dataset configuration
+dataset:
+  name: gsm8k
+  split: test
+  cache_dir: .cache/
+  max_samples: 200  # Total dataset size for this experiment
+  val_split: 50  # Number of samples for hyperparameter tuning
+  test_split: 150  # Number of samples for final evaluation

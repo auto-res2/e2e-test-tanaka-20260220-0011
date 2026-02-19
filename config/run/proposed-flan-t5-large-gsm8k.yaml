@@ -1,0 +1,69 @@
+# Run configuration for DT-SEACoT (proposed method)
+# Decision-Theoretic, Self-Entailed Adaptive Chain-of-Thought
+
+run:
+  run_id: proposed-flan-t5-large-gsm8k
+  method_type: proposed
+  method_name: DT-SEACoT
+  description: "Decision-Theoretic, Self-Entailed Adaptive CoT with value-aware gating and self-entailment weighting"
+
+# Inference configuration
+inference:
+  method: dt_seacot
+  
+  # System-1 (direct answer) parameters
+  n0_direct_samples: 5
+  direct_max_tokens: 64
+  direct_temperature: 0.7
+  
+  # System-2 (CoT) parameters
+  k_max_cot_samples: 16
+  cot_max_tokens: 256
+  cot_temperature: 0.7
+  
+  # Value-aware gating thresholds
+  gate_confidence_threshold: 0.8  # Skip deliberation if System-1 is confident
+  gate_entropy_threshold: 0.5  # Low entropy = high confidence
+  
+  # Early stopping (SPRT-style)
+  early_stop_enabled: true
+  early_stop_posterior_threshold: 0.9  # Stop when top answer posterior > threshold
+  
+  # Self-entailment likelihood ratio weighting
+  use_self_entailment: true
+  
+  # Logging
+  log_intermediate_steps: true
+
+# Optuna hyperparameter search
+optuna:
+  enabled: true
+  n_trials: 20
+  study_name: dt_seacot_gsm8k_tuning
+  
+  # Parameters to optimize
+  search_space:
+    gate_confidence_threshold:
+      type: float
+      low: 0.7
+      high: 0.95
+    gate_entropy_threshold:
+      type: float
+      low: 0.3
+      high: 0.8
+    early_stop_posterior_threshold:
+      type: float
+      low: 0.85
+      high: 0.95
+    direct_temperature:
+      type: float
+      low: 0.5
+      high: 1.0
+    cot_temperature:
+      type: float
+      low: 0.5
+      high: 1.0
+  
+  # Optimization objective
+  direction: maximize
+  metric: accuracy
