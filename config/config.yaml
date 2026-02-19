@@ -32,3 +32,24 @@ dataset:
   max_samples: 200  # Total dataset size for this experiment
   val_split: 50  # Number of samples for hyperparameter tuning
   test_split: 150  # Number of samples for final evaluation
+
+# [VALIDATOR FIX - Attempt 1]
+# [PROBLEM]: ConfigAttributeError: Key 'inference' is not in struct
+# [CAUSE]: OmegaConf is in struct mode, and the base config.yaml doesn't have an 
+#          'inference' key. When the run-specific config tries to add 'inference',
+#          struct mode prevents it from being added dynamically.
+# [FIX]: Add placeholder 'inference' and 'optuna' sections to the base config.yaml 
+#        so they exist in the config structure and can be overridden by run-specific configs.
+#
+# [OLD CODE]:
+# (no inference or optuna sections in config.yaml)
+#
+# [NEW CODE]:
+# Inference configuration (overridden by run-specific configs)
+inference:
+  method: ???  # Must be specified in run config
+
+# Optuna hyperparameter search (overridden by run-specific configs)
+optuna:
+  enabled: false
+  n_trials: 0
