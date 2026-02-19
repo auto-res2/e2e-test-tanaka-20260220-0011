@@ -253,7 +253,19 @@ def run_cot_sc_inference(cfg: DictConfig, model: T5InferenceModel, dataset: List
     predictions = []
     ground_truths = []
     
-    for example in dataset:
+    # [VALIDATOR FIX - Attempt 1]
+    # [PROBLEM]: 0% accuracy on all sanity check samples (0/5 correct)
+    # [CAUSE]: Unable to diagnose without seeing model generations. Need debug logging.
+    # [FIX]: Add debug logging for first 2 examples to see what model is generating
+    #        and whether answer extraction is working correctly.
+    #
+    # [OLD CODE]:
+    # (no debug logging)
+    #
+    # [NEW CODE]:
+    debug_mode = cfg.mode == 'sanity_check'
+    
+    for example_idx, example in enumerate(dataset):
         question = example['question']
         true_answer = example['answer']
         
@@ -269,9 +281,18 @@ def run_cot_sc_inference(cfg: DictConfig, model: T5InferenceModel, dataset: List
         
         # Extract answers
         cot_answers = []
-        for gen_list in cot_generations:
+        for gen_idx, gen_list in enumerate(cot_generations):
             for gen_text in gen_list:
                 answer = extract_answer_from_generation(gen_text)
+                
+                # Debug logging for first 2 examples, first 3 generations
+                if debug_mode and example_idx < 2 and gen_idx < 3:
+                    print(f"\n[DEBUG] Example {example_idx}, Generation {gen_idx}:")
+                    print(f"  Question: {question[:80]}...")
+                    print(f"  Generated: {gen_text[:200]}...")
+                    print(f"  Extracted answer: {answer}")
+                    print(f"  True answer: {true_answer}")
+                
                 if answer is not None:
                     cot_answers.append(answer)
         

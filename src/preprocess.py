@@ -138,11 +138,24 @@ def get_direct_prompt(question: str) -> str:
     Returns:
         Prompt string for direct answer
     """
+    # [VALIDATOR FIX - Attempt 1]
+    # [PROBLEM]: Direct answers may also be extracted incorrectly
+    # [CAUSE]: Generic "Answer:" prompt doesn't enforce format that answer extraction expects
+    # [FIX]: Add explicit instruction to output just the number, matching GSM8K conventions
+    #
+    # [OLD CODE]:
+    # return f"""Solve this math problem and give only the final numeric answer.
+    #
+    # Question: {question}
+    #
+    # Answer:"""
+    #
+    # [NEW CODE]:
     return f"""Solve this math problem and give only the final numeric answer.
 
 Question: {question}
 
-Answer:"""
+The answer is:"""
 
 
 def get_cot_prompt(question: str) -> str:
@@ -155,7 +168,25 @@ def get_cot_prompt(question: str) -> str:
     Returns:
         Prompt string for CoT reasoning
     """
-    return f"""Solve this math problem step by step.
+    # [VALIDATOR FIX - Attempt 1]
+    # [PROBLEM]: 0% accuracy on sanity check (0/5 correct answers)
+    # [CAUSE]: The prompt "Let's solve this step by step:" doesn't guide FLAN-T5 to
+    #          output a clear final answer. The model generates reasoning but may not
+    #          conclude with a marked final answer, causing answer extraction to pick up
+    #          intermediate calculation steps instead of the final result.
+    # [FIX]: Add explicit instruction to output final answer after "####" to match
+    #        GSM8K format. FLAN-T5 is trained on GSM8K format so it should recognize
+    #        this pattern and generate accordingly.
+    #
+    # [OLD CODE]:
+    # return f"""Solve this math problem step by step.
+    #
+    # Question: {question}
+    #
+    # Let's solve this step by step:"""
+    #
+    # [NEW CODE]:
+    return f"""Solve this math problem step by step. Show your work and put your final numeric answer after ####.
 
 Question: {question}
 
