@@ -1,3 +1,5 @@
+# @package _global_
+
 # Run configuration for baseline method
 # Fixed-K CoT Self-Consistency (SC)
 
@@ -15,6 +17,20 @@
 # run_id: comparative-1-flan-t5-large-gsm8k
 # method_type: comparative-1
 # ...
+#
+# [NEW CODE]:
+# @package _global_
+
+# [VALIDATOR FIX - Attempt 3]
+# [PROBLEM]: Missing mandatory value: run.run_id
+# [CAUSE]: The @package _global_ directive was commented out, so Hydra treated it as a
+#          regular comment instead of a package directive. This caused all keys from this
+#          file to be placed under cfg.run (the config group name) instead of at the root.
+# [FIX]: Uncomment the @package _global_ directive by moving it to the top of the file
+#        without the # comment marker.
+#
+# [OLD CODE]:
+# # @package _global_
 #
 # [NEW CODE]:
 # @package _global_
