@@ -141,12 +141,29 @@ def main(cfg: DictConfig):
         print("  - Disabled hyperparameter tuning")
         print("  - WandB mode: online")
     
-    # Run hyperparameter tuning if enabled
+    # [VALIDATOR FIX - Attempt 1]
+    # [PROBLEM]: ConfigAttributeError: Key 'use_val_split' is not in struct
+    # [CAUSE]: Lines 146 and 149 tried to set cfg.use_val_split, but OmegaConf struct mode
+    #          prevents adding new keys that don't exist in the config schema.
+    # [FIX]: Track the split selection locally without modifying the config. Use a local
+    #        variable that's initialized before the if block so it's available in all code paths.
+    #
+    # [OLD CODE]:
+    # if hasattr(cfg, 'optuna') and cfg.optuna.enabled and cfg.optuna.n_trials > 0:
+    #     cfg.use_val_split = True  # Use validation set for tuning
+    #     cfg = run_hyperparameter_tuning(cfg)
+    #     print("\nProceeding to final evaluation with tuned hyperparameters...")
+    #     cfg.use_val_split = False  # Switch to test set for final run
+    #
+    # [NEW CODE]:
+    # Run hyperparameter tuning if enabled (track split choice locally)
+    use_val_split_for_final_run = False  # Initialize to False (use test split by default)
     if hasattr(cfg, 'optuna') and cfg.optuna.enabled and cfg.optuna.n_trials > 0:
-        cfg.use_val_split = True  # Use validation set for tuning
+        # Use validation set for tuning
         cfg = run_hyperparameter_tuning(cfg)
         print("\nProceeding to final evaluation with tuned hyperparameters...")
-        cfg.use_val_split = False  # Switch to test set for final run
+        # After tuning, we want to use test set for final evaluation
+        use_val_split_for_final_run = False
     
     # Run inference directly (no subprocess needed since it's a single script)
     print("\nRunning inference...")
@@ -168,7 +185,8 @@ def main(cfg: DictConfig):
         import json
         
         # Load dataset
-        split_name = 'val' if cfg.mode == 'sanity_check' or (hasattr(cfg, 'use_val_split') and cfg.use_val_split) else 'test'
+        # In sanity_check mode or when tuning just finished, use val; otherwise use test
+        split_name = 'val' if cfg.mode == 'sanity_check' or use_val_split_for_final_run else 'test'
         datasets = load_gsm8k_dataset(
             cache_dir=cfg.dataset.cache_dir,
             max_samples=cfg.dataset.max_samples,
