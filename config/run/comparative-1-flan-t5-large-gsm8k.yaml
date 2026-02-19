@@ -1,11 +1,27 @@
 # Run configuration for baseline method
 # Fixed-K CoT Self-Consistency (SC)
 
-run:
-  run_id: comparative-1-flan-t5-large-gsm8k
-  method_type: comparative-1
-  method_name: CoT-SC
-  description: "Fixed-K Chain-of-Thought with Self-Consistency (plurality voting baseline)"
+# [VALIDATOR FIX - Attempt 1]
+# [PROBLEM]: ConfigAttributeError: Key 'run_id' is not in struct (cfg.run.run_id)
+# [CAUSE]: When Hydra loads a config group file from 'config/run/', it merges the 
+#          TOP-LEVEL keys from that file into the config under the group name.
+#          The original file had 'run:' as a top-level key, creating cfg.run.run 
+#          instead of cfg.run directly containing run_id.
+# [FIX]: Removed the 'run:' wrapper so the fields (run_id, method_type, etc.) 
+#        are at the top level of this file and get placed directly under cfg.run
+#
+# [OLD CODE]:
+# run:
+#   run_id: comparative-1-flan-t5-large-gsm8k
+#   method_type: comparative-1
+#   method_name: CoT-SC
+#   description: "Fixed-K Chain-of-Thought with Self-Consistency (plurality voting baseline)"
+#
+# [NEW CODE]:
+run_id: comparative-1-flan-t5-large-gsm8k
+method_type: comparative-1
+method_name: CoT-SC
+description: "Fixed-K Chain-of-Thought with Self-Consistency (plurality voting baseline)"
 
 # Inference configuration
 inference:

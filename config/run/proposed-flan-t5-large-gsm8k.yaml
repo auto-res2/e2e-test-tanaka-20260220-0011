@@ -1,11 +1,27 @@
 # Run configuration for DT-SEACoT (proposed method)
 # Decision-Theoretic, Self-Entailed Adaptive Chain-of-Thought
 
-run:
-  run_id: proposed-flan-t5-large-gsm8k
-  method_type: proposed
-  method_name: DT-SEACoT
-  description: "Decision-Theoretic, Self-Entailed Adaptive CoT with value-aware gating and self-entailment weighting"
+# [VALIDATOR FIX - Attempt 1]
+# [PROBLEM]: ConfigAttributeError: Key 'run_id' is not in struct (cfg.run.run_id)
+# [CAUSE]: When Hydra loads a config group file from 'config/run/', it merges the 
+#          TOP-LEVEL keys from that file into the config under the group name.
+#          The original file had 'run:' as a top-level key, creating cfg.run.run 
+#          instead of cfg.run directly containing run_id.
+# [FIX]: Removed the 'run:' wrapper so the fields (run_id, method_type, etc.) 
+#        are at the top level of this file and get placed directly under cfg.run
+#
+# [OLD CODE]:
+# run:
+#   run_id: proposed-flan-t5-large-gsm8k
+#   method_type: proposed
+#   method_name: DT-SEACoT
+#   description: "Decision-Theoretic, Self-Entailed Adaptive CoT with value-aware gating and self-entailment weighting"
+#
+# [NEW CODE]:
+run_id: proposed-flan-t5-large-gsm8k
+method_type: proposed
+method_name: DT-SEACoT
+description: "Decision-Theoretic, Self-Entailed Adaptive CoT with value-aware gating and self-entailment weighting"
 
 # Inference configuration
 inference:
