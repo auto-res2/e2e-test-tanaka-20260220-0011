@@ -1121,5 +1121,168 @@
     "experimental_code": "import re\nimport math\nimport random\nfrom dataclasses import dataclass\nfrom collections import Counter, defaultdict\nfrom typing import Dict, List, Optional, Tuple\n\nimport torch\nfrom transformers import AutoTokenizer, AutoModelForSeq2SeqLM\n\n# ---------------- Answer extraction ----------------\n_num_re = re.compile(r\"-?\\d+\\.?\\d*\")\n\ndef normalize_ws(s: str) -> str:\n    return \" \".join(s.strip().lower().split())\n\ndef extract_answer(text: str, mode: str) -> Optional[str]:\n    t = text.replace(\",\", \" \")\n    if mode == \"numeric\":\n        nums = _num_re.findall(t)\n        return nums[-1] if nums else None\n    # symbolic: take last \"token\" after normalization\n    t = normalize_ws(t)\n    return t.split()[-1] if t else None\n\n# ---------------- LM helpers ----------------\n\ndef generate_text(model, tok, prompt: str, *, do_sample: bool, temperature: float,\n                  max_new_tokens: int, num_return_sequences: int = 1) -> List[str]:\n    x = tok(prompt, return_tensors=\"pt\", truncation=True).to(model.device)\n    out = model.generate(\n        **x,\n        do_sample=do_sample,\n        temperature=temperature,\n        max_new_tokens=max_new_tokens,\n        num_return_sequences=num_return_sequences,\n    )\n    return tok.batch_decode(out, skip_special_tokens=True)\n\n@torch.no_grad()\ndef nll_of_target(model, tok, src_prompt: str, target_text: str) -> float:\n    \"\"\"Teacher-forced NLL of target_text given src_prompt (lower is better).\"\"\"\n    src = tok(src_prompt, return_tensors=\"pt\", truncation=True).to(model.device)\n    tgt = tok(target_text, return_tensors=\"pt\", truncation=True).input_ids.to(model.device)\n    labels = tgt.clone()\n    labels[labels == tok.pad_token_id] = -100\n    out = model(**src, labels=labels)\n    n_tokens = (labels != -100).sum().item()\n    return float(out.loss.item() * max(n_tokens, 1))\n\n# ---------------- Proposed DT-SEACoT ----------------\n\n@dataclass\nclass DTSEACoTConfig:\n    # system-1\n    N0: int = 5\n    max_new_direct: int = 64\n\n    # system-2\n    K_max: int = 16\n    batch: int = 4\n    max_new_cot: int = 256\n\n    temperature: float = 0.7\n\n    # gating thresholds\n    tau_conf: float = 0.7\n    tau_ent: float = 0.8\n    tau_margin0: float = 0.4\n\n    # stopping thresholds (SPRT-like)\n    tau_post: float = 0.85\n    tau_logodds: float = 2.0\n\n    # fusion weights\n    alpha: float = 0.10   # weight on LL_direct = -NLL\n    beta: float = 0.20    # weight on ΔLL (self-entailment LR)\n    delta: float = 0.70   # weight on System-1 prior\n\n    eps: float = 1e-8\n\n\ndef dt_seacot(model, tok, question: str, *, mode: str, cfg: DTSEACoTConfig = DTSEACoTConfig()):\n    \"\"\"Returns (answer, info). Training-free adaptive CoT with self-entailment weighting.\"\"\"\n    # ---- prompts ----\n    p_direct = f\"Q: {question}\\nA:\"\n    p_cot = f\"Q: {question}\\nA: Let's think step by step.\"\n\n    # ---- System-1 distribution ----\n    direct_samples = generate_text(\n        model, tok, p_direct,\n        do_sample=True, temperature=cfg.temperature,\n        max_new_tokens=cfg.max_new_direct,\n        num_return_sequences=cfg.N0,\n    )\n    a0 = [extract_answer(s, mode=mode) for s in direct_samples]\n    a0 = [x for x in a0 if x is not None]\n\n    if not a0:\n        greedy = generate_text(model, tok, p_direct, do_sample=False, temperature=1.0,\n                               max_new_tokens=cfg.max_new_direct, num_return_sequences=1)[0]\n        return extract_answer(greedy, mode=mode), {\"used_cot\": False, \"fallback\": \"no_parse_direct\"}\n\n    cnt0 = Counter(a0)\n    tot0 = sum(cnt0.values())\n    p0 = {y: c / tot0 for y, c in cnt0.items()}\n\n    # entropy / margin\n    ent0 = -sum(p * math.log(p + cfg.eps) for p in p0.values())\n    top2 = sorted(p0.items(), key=lambda kv: kv[1], reverse=True)[:2]\n    y1, p1 = top2[0]\n    p2 = top2[1][1] if len(top2) > 1 else 0.0\n    margin0 = p1 - p2\n\n    # ---- Gate: skip CoT when System-1 is stable ----\n    if (p1 >= cfg.tau_conf) and (ent0 <= cfg.tau_ent) and (margin0 >= cfg.tau_margin0):\n        return y1, {\"used_cot\": False, \"pmax\": p1, \"ent\": ent0, \"margin0\": margin0}\n\n    # ---- System-2: adaptive CoT with self-entailment LR ----\n    logW = defaultdict(float)\n    for y, p in p0.items():\n        logW[y] += cfg.delta * math.log(p + cfg.eps)\n\n    def softmax_from_logw(d: Dict[str, float]) -> Dict[str, float]:\n        m = max(d.values())\n        ex = {k: math.exp(v - m) for k, v in d.items()}\n        z = sum(ex.values()) + cfg.eps\n        return {k: v / z for k, v in ex.items()}\n\n    used = 0\n    seen = 0\n\n    while used < cfg.K_max:\n        b = min(cfg.batch, cfg.K_max - used)\n        samples = generate_text(\n            model, tok, p_cot,\n            do_sample=True, temperature=cfg.temperature,\n            max_new_tokens=cfg.max_new_cot,\n            num_return_sequences=b,\n        )\n        used += b\n\n        for s in samples:\n            y = extract_answer(s, mode=mode)\n            if y is None:\n                continue\n            seen += 1\n\n            # LL_direct(y)\n            ll_direct = -nll_of_target(model, tok, p_direct, y)\n\n            # LL_r2a(y): condition on the *generated* reasoning text\n            p_r2a = f\"Q: {question}\\nReasoning: {s}\\nTherefore, the answer is:\"\n            ll_r2a = -nll_of_target(model, tok, p_r2a, y)\n\n            dLL = ll_r2a - ll_direct  # self-entailment likelihood ratio\n            logW[y] += cfg.alpha * ll_direct + cfg.beta * dLL\n\n        if len(logW) >= 2:\n            post = softmax_from_logw(logW)\n            top = sorted(post.items(), key=lambda kv: kv[1], reverse=True)[:2]\n            y_star, p_star = top[0]\n            p_second = top[1][1]\n            logodds = math.log((p_star + cfg.eps) / (p_second + cfg.eps))\n            if (p_star >= cfg.tau_post) or (logodds >= cfg.tau_logodds):\n                return y_star, {\"used_cot\": True, \"cot_used\": used, \"seen\": seen,\n                                \"pmax0\": p1, \"ent0\": ent0, \"margin0\": margin0,\n                                \"p_star\": p_star, \"logodds\": logodds}\n\n    # no early stop\n    post = softmax_from_logw(logW)\n    y_star = max(post.items(), key=lambda kv: kv[1])[0]\n    return y_star, {\"used_cot\": True, \"cot_used\": used, \"seen\": seen,\n                    \"pmax0\": p1, \"ent0\": ent0, \"margin0\": margin0,\n                    \"p_star\": post[y_star]}\n\n# ---------------- Synthetic data generators (optional) ----------------\n\ndef gen_last_letter(n_words: int) -> Tuple[str, str]:\n    words = []\n    for _ in range(n_words):\n        L = random.randint(3, 7)\n        w = \"\".join(random.choice(\"abcdefghijklmnopqrstuvwxyz\") for _ in range(L))\n        words.append(w)\n    ans = \"\".join(w[-1] for w in words)\n    q = \"Take the last letter of each word and concatenate them: \" + \" \".join(words)\n    return q, ans\n\ndef gen_coin_flip(n_steps: int) -> Tuple[str, str]:\n    # Simple deterministic tracking: start Heads, flips toggle.\n    # Add \"no-op\" steps to make language longer.\n    state = 0  # 0=heads, 1=tails\n    steps = []\n    for i in range(n_steps):\n        steps.append(\"flip\")\n        state ^= 1\n    ans = \"heads\" if state == 0 else \"tails\"\n    q = f\"A coin starts on heads. Apply these operations in order: {', '.join(steps)}. What is the final state (heads/tails)?\"\n    return q, ans\n\nif __name__ == \"__main__\":\n    model_name = \"google/flan-t5-large\"\n    tok = AutoTokenizer.from_pretrained(model_name)\n    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)\n    model = model.to(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n    model.eval()\n\n    q, gt = gen_last_letter(6)\n    pred, info = dt_seacot(model, tok, q, mode=\"symbolic\")\n    print(\"Q:\", q)\n    print(\"GT:\", gt)\n    print(\"Pred:\", pred)\n    print(\"Info:\", info)\n",
     "expected_result": "**Primary metric: higher accuracy is better.**\n\nWe expect DT-SEACoT to improve easy-task accuracy (reduce overthinking) *and* reduce compute vs fixed-K CoT-SC, while staying competitive on hard tasks.\n\n### SVAMP (easy / heuristic-sensitive; 200 examples)\n- Direct (greedy): 70–75%\n- Zero-shot-CoT (greedy): 65–72%\n- CoT-SC (K=16): 72–76%\n- MCG‑BSC: 77–80%\n- **DT-SEACoT: 79–83%**\nSecondary: **35–65% fewer CoT tokens** than CoT-SC due to stronger gating + SPRT stopping.\n\n### GSM8K (hard; 200 examples)\n- Direct (greedy): 10–20%\n- Zero-shot-CoT (greedy): 25–35%\n- CoT-SC (K=16): 35–42%\n- MCG‑BSC: 39–45%\n- **DT-SEACoT: 40–46%**\nSecondary: **10–30% fewer CoT tokens** than CoT-SC from early stopping on decisive items; minimal regression risk because gating triggers System‑2 on most items.\n\n### Synthetic symbolic tasks\n- Easy split: DT-SEACoT ≈ Direct (near-ceiling), outperforming always-CoT when CoT introduces noise.\n- Hard split: DT-SEACoT ≈ CoT-SC, with fewer samples thanks to SPRT.\n\nMechanistic expectation: the **self-entailment likelihood ratio** will specifically reduce cases where many sampled CoTs converge on a fluent but wrong answer by downweighting rationales that do not make that answer more probable when conditioned upon.",
     "expected_conclusion": "DT-SEACoT strengthens CoT’s human-likeness by turning “think step by step” into a *metacognitively controlled* process: the model first estimates a fast belief distribution, then **decides whether additional reasoning is worth it**, and finally **accepts only CoT evidence that is self-supported**.\n\nAcademic value / novelty:\n- Introduces a training-free, single-model proxy for *rationale–answer coherence* via a **self-entailment likelihood ratio**, going beyond prior gating and simple answer-likelihood reranking.\n- Frames adaptive CoT as a **sequential Bayesian decision procedure** with a clear early-stopping rule (SPRT-style), making compute allocation principled and measurable.\n\nPractical/social value:\n- Improves reliability by reducing “convincing but unsupported” reasoning traces.\n- Saves tokens/energy/latency, lowering deployment costs and carbon footprint while preserving gains on genuinely hard problems.\n\nThis refined hypothesis is more significant than the current one because it targets not just *when* to think, but also *which* thoughts should count as evidence—addressing a core failure mode of CoT systems in high-stakes settings."
+  },
+  "experimental_design": {
+    "experiment_summary": "We evaluate whether DT-SEACoT (Decision-Theoretic, Self-Entailed Adaptive Chain-of-Thought) yields a Pareto improvement on GSM8K: higher (or matched) answer accuracy with fewer generated tokens/latency than fixed-budget CoT self-consistency. The model must solve grade-school math word problems by producing a final numeric answer.\n\nWorkflow (single model, no training):\n1) For each question q, run a fast System-1 stage: sample N0 short direct answers (no reasoning) to estimate an empirical prior p0(y|q) and uncertainty statistics (entropy, top-2 margin, max probability).\n2) Value-aware gate: if System-1 is sufficiently confident, return the top direct answer immediately (skip deliberation).\n3) Otherwise, enter System-2: sequentially sample CoT rationales and answers up to K_max; for each sampled (r,y), compute (a) direct answer log-likelihood LL_direct(y)=log p(y|q) and (b) self-entailment likelihood ratio ΔLL(y,r)=log p(y|q,r)−log p(y|q) via teacher-forced NLL using the same LM. Update per-answer weights W[y] with these evidence terms.\n4) Early-stop (SPRT-style): stop sampling when the posterior odds/posterior mass of the top answer exceeds a threshold; output argmax_y W[y].\n\nComparison: fixed-K CoT self-consistency (SC) that samples K_max CoT traces and returns the plurality-vote answer (exchangeable voting) with no gating or coherence weighting.\n\nScale to fit the provided Runner (1× NVIDIA H200 140GB):\n- Use google/flan-t5-large (~0.78B) in fp16/bf16 on a single GPU.\n- Evaluate only the first 200 GSM8K test examples to keep total generations and teacher-forced scoring tractable.\n- Hyperparameters are tuned on a small held-out slice of 50 examples (from the same 200 via deterministic split) using Optuna with 20 trials; final reporting is on the remaining 150 examples.\n- Generation budgets: DT-SEACoT uses N0=5 direct samples (≤64 new tokens each) and adaptively up to K_max=16 CoT samples (≤256 new tokens each) but often stops earlier; baseline SC always uses K_max=16 CoT samples.\n- Log token usage, #samples used, and wall-clock time per item to quantify compute savings.",
+    "runner_config": {
+      "runner_label": [
+        "self-hosted",
+        "gpu-runner"
+      ],
+      "description": "NVIDIA H200, VRAM: 140 GB, RAM: 240 GB"
+    },
+    "evaluation_metrics": [
+      {
+        "name": "accuracy",
+        "description": "Correctness criteria: For each GSM8K item i with ground-truth answer a_i (a number), parse the model prediction into a numeric value \\hat{a}_i by extracting the last number in the decoded text (after removing commas) and converting to float/Decimal; if parsing fails, mark incorrect. A prediction is correct if \\hat{a}_i equals a_i exactly as a normalized number string OR matches numerically within tolerance for decimal formatting (recommended: |\\hat{a}_i−a_i| ≤ 1e−6 when both parse as floats; otherwise exact normalized string match).\n\nCalculation method: accuracy = (1/N) * Σ_i 1[correct_i]. Report also 95% bootstrap CI over items.\n\nTask appropriateness: GSM8K is a single-answer math reasoning task where correctness is determined by the final numeric result; accuracy directly measures problem-solving success.\n\nRelevant visualizations: (1) Bar chart of accuracy with bootstrap CIs for each method. (2) Scatter/box plot of per-item token usage vs correctness (to illustrate Pareto tradeoffs)."
+      },
+      {
+        "name": "avg_generated_tokens",
+        "description": "Correctness criteria: Not a correctness metric; measures compute/latency proxy. Count generated tokens produced by the model during inference per item, summing across all generations used by the method (System-1 samples + System-2 CoT samples; include early-stopped counts). Use tokenizer token counts for each generated completion.\n\nCalculation method: avg_generated_tokens = (1/N) * Σ_i tokens_i. Also report median and 90th percentile tokens.\n\nTask appropriateness: The hypothesis targets Pareto improvements (accuracy with fewer tokens). Tokens are a hardware-agnostic proxy for cost, latency, and energy.\n\nRelevant visualizations: (1) Box plot / violin plot of tokens per item by method. (2) Pareto frontier plot: accuracy vs avg_generated_tokens (one point per method)."
+      },
+      {
+        "name": "cot_trigger_rate",
+        "description": "Correctness criteria: For DT-SEACoT only, mark used_cot_i=1 if the gate enters System-2 (deliberation) for item i; else 0.\n\nCalculation method: cot_trigger_rate = (1/N) * Σ_i used_cot_i.\n\nTask appropriateness: Validates that the gate is selectively allocating compute instead of always-on CoT.\n\nRelevant visualizations: Bar chart of trigger rate; optionally stratified by System-1 confidence bins."
+      },
+      {
+        "name": "avg_cot_samples_used",
+        "description": "Correctness criteria: For DT-SEACoT only, record k_i = number of CoT samples actually generated before stopping (0 if gated off).\n\nCalculation method: avg_cot_samples_used = (1/N) * Σ_i k_i; also report distribution (median, p90).\n\nTask appropriateness: Directly measures effectiveness of SPRT-style early stopping relative to the fixed K_max baseline.\n\nRelevant visualizations: Histogram of k_i; CDF of samples used."
+      },
+      {
+        "name": "expected_calibration_error_of_posterior",
+        "description": "Correctness criteria: For DT-SEACoT, use the final posterior mass p_i(y*) assigned to the chosen answer y* as a confidence score c_i in [0,1]. Define correctness o_i ∈ {0,1} from the accuracy criterion.\n\nCalculation method: Bin confidences into M bins (e.g., M=10). For bin m with indices B_m, compute acc(B_m)=mean(o_i) and conf(B_m)=mean(c_i). ECE = Σ_m (|B_m|/N) * |acc(B_m)−conf(B_m)|.\n\nTask appropriateness: DT-SEACoT introduces a probabilistic stopping/aggregation mechanism; calibration assesses whether the inferred posterior corresponds to empirical correctness.\n\nRelevant visualizations: Reliability diagram (accuracy vs confidence by bin); ECE bar value."
+      }
+    ],
+    "models_to_use": [
+      "google/flan-t5-large (~783M params)"
+    ],
+    "datasets_to_use": [
+      "GSM8K (openai/gsm8k, main)"
+    ],
+    "proposed_method": {
+      "method_name": "DT-SEACoT (Decision-Theoretic, Self-Entailed Adaptive CoT)",
+      "description": "Training-free inference algorithm for Chain-of-Thought that (1) gates deliberation using a fast System-1 uncertainty estimate and (2) aggregates sampled CoT evidence with self-entailment likelihood ratios ΔLL(y,r)=log p(y|q,r)−log p(y|q) computed via teacher-forced NLL in the same LM, while (3) early-stopping via SPRT-style posterior odds thresholds to reduce sampling cost.",
+      "optuna_config": {
+        "enabled": true,
+        "n_trials": 20,
+        "search_spaces": [
+          {
+            "param_name": "tau_conf",
+            "distribution_type": "uniform",
+            "low": 0.55,
+            "high": 0.9
+          },
+          {
+            "param_name": "tau_ent",
+            "distribution_type": "uniform",
+            "low": 0.2,
+            "high": 1.5
+          },
+          {
+            "param_name": "tau_margin0",
+            "distribution_type": "uniform",
+            "low": 0.1,
+            "high": 0.7
+          },
+          {
+            "param_name": "tau_post",
+            "distribution_type": "uniform",
+            "low": 0.7,
+            "high": 0.95
+          },
+          {
+            "param_name": "tau_logodds",
+            "distribution_type": "uniform",
+            "low": 0.5,
+            "high": 4.0
+          },
+          {
+            "param_name": "alpha",
+            "distribution_type": "uniform",
+            "low": 0.0,
+            "high": 0.5
+          },
+          {
+            "param_name": "beta",
+            "distribution_type": "uniform",
+            "low": 0.0,
+            "high": 0.8
+          },
+          {
+            "param_name": "delta",
+            "distribution_type": "uniform",
+            "low": 0.0,
+            "high": 1.0
+          },
+          {
+            "param_name": "N0",
+            "distribution_type": "categorical",
+            "choices": [
+              3,
+              5,
+              7
+            ]
+          },
+          {
+            "param_name": "K_max",
+            "distribution_type": "categorical",
+            "choices": [
+              8,
+              16
+            ]
+          },
+          {
+            "param_name": "max_new_direct",
+            "distribution_type": "categorical",
+            "choices": [
+              32,
+              64
+            ]
+          },
+          {
+            "param_name": "max_new_cot",
+            "distribution_type": "categorical",
+            "choices": [
+              128,
+              256
+            ]
+          }
+        ]
+      }
+    },
+    "comparative_methods": [
+      {
+        "method_name": "Fixed-K CoT Self-Consistency (SC)",
+        "description": "Baseline inference-time ensemble: sample K_max chain-of-thought completions at temperature T, extract each completion’s final numeric answer, and return the plurality vote. No compute gating, no rationale–answer coherence scoring, and no adaptive early stopping.",
+        "optuna_config": {
+          "enabled": true,
+          "n_trials": 20,
+          "search_spaces": [
+            {
+              "param_name": "temperature",
+              "distribution_type": "uniform",
+              "low": 0.3,
+              "high": 1.0
+            },
+            {
+              "param_name": "K_max",
+              "distribution_type": "categorical",
+              "choices": [
+                8,
+                16
+              ]
+            },
+            {
+              "param_name": "max_new_cot",
+              "distribution_type": "categorical",
+              "choices": [
+                128,
+                256
+              ]
+            }
+          ]
+        }
+      }
+    ]
   }
 }
