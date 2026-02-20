@@ -298,6 +298,35 @@ def main():
     """
     Main evaluation script.
     """
+    # [VALIDATOR FIX - Attempt 1]
+    # [PROBLEM]: Script fails with "error: the following arguments are required: --results_dir, --run_ids"
+    # [CAUSE]: Workflow calls with key=value format (e.g., results_dir="...") instead of --key value format
+    # [FIX]: Preprocess sys.argv to convert key=value format to --key value format
+    #
+    # [OLD CODE]:
+    # parser = argparse.ArgumentParser(description="Evaluate and compare experiment runs")
+    # parser.add_argument('--results_dir', type=str, required=True, help='Results directory')
+    # parser.add_argument('--run_ids', type=str, required=True, help='JSON list of run IDs')
+    # parser.add_argument('--wandb_entity', type=str, default='airas', help='WandB entity')
+    # parser.add_argument('--wandb_project', type=str, default='2026-02-19', help='WandB project')
+    # parser.add_argument('--primary_metric', type=str, default='accuracy', help='Primary metric for comparison')
+    # 
+    # args = parser.parse_args()
+    #
+    # [NEW CODE]:
+    import sys
+    
+    # Preprocess sys.argv to handle key=value format
+    processed_argv = []
+    for arg in sys.argv[1:]:
+        if '=' in arg and not arg.startswith('-'):
+            # Convert key=value to --key value
+            key, value = arg.split('=', 1)
+            processed_argv.append(f'--{key}')
+            processed_argv.append(value)
+        else:
+            processed_argv.append(arg)
+    
     parser = argparse.ArgumentParser(description="Evaluate and compare experiment runs")
     parser.add_argument('--results_dir', type=str, required=True, help='Results directory')
     parser.add_argument('--run_ids', type=str, required=True, help='JSON list of run IDs')
@@ -305,7 +334,7 @@ def main():
     parser.add_argument('--wandb_project', type=str, default='2026-02-19', help='WandB project')
     parser.add_argument('--primary_metric', type=str, default='accuracy', help='Primary metric for comparison')
     
-    args = parser.parse_args()
+    args = parser.parse_args(processed_argv)
     
     # Parse run_ids
     run_ids = json.loads(args.run_ids)
