@@ -1,4 +1,4 @@
-%  LaTeX support: latex@mdpi.com 
+%  LaTeX support: latex@mdpi.com
 %  For support, please attach all files needed for compiling as well as the log file, and specify your operating system, LaTeX version, and LaTeX editor.
 
 %=================================================================
@@ -6,9 +6,9 @@
 
 %=================================================================
 % MDPI internal commands - do not modify
-\firstpage{1} 
-\makeatletter 
-\setcounter{page}{\@firstpage} 
+\firstpage{1}
+\makeatletter
+\setcounter{page}{\@firstpage}
 \makeatother
 \pubvolume{1}
 \issuenum{1}
@@ -16,10 +16,10 @@
 \pubyear{2026}
 \copyrightyear{2026}
 %\externaleditor{Firstname Lastname} % More than 1 editor, please add `` and '' before the last editor name
-\datereceived{ } 
+\datereceived{ }
 \daterevised{ } % Comment out if no revised date
-\dateaccepted{ } 
-\datepublished{ } 
+\dateaccepted{ }
+\datepublished{ }
 %\datecorrected{} % For corrected papers: "Corrected: XXX" date in the original paper.
 %\dateretracted{} % For retracted papers: "Retracted: XXX" date in the original paper.
 %\doinum{} % Used for some special journals, like molbank
@@ -31,6 +31,9 @@
 %=================================================================
 % Add packages and commands here. The following packages are loaded in our class file: fontenc, inputenc, calc, indentfirst, fancyhdr, graphicx, epstopdf, lastpage, ifthen, float, amsmath, amssymb, lineno, setspace, enumitem, mathpazo, booktabs, titlesec, etoolbox, tabto, xcolor, colortbl, soul, multirow, microtype, tikz, totcount, changepage, attrib, upgreek, array, tabularx, pbox, ragged2e, tocloft, marginnote, marginfix, enotez, amsthm, natbib, hyperref, cleveref, scrextend, url, geometry, newfloat, caption, draftwatermark, seqsplit
 % cleveref: load \crefname definitions after \begin{document}
+
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 
 %=================================================================
 % Please use the following mathematics environments: Theorem, Lemma, Corollary, Proposition, Characterization, Property, Problem, Example, ExamplesandDefinitions, Hypothesis, Remark, Definition, Notation, Assumption
@@ -58,7 +61,7 @@ $^{1}$ \quad Affiliation 1; e-mail@e-mail.com\\
 $^{2}$ \quad Affiliation 2; e-mail@e-mail.com}
 
 % Contact information of the corresponding author
-\corres{Correspondence: e-mail@e-mail.com; Tel.: (optional; include country code; if there are multiple corresponding authors, add author initials) +xx-xxxx-xxx-xxxx (F.L.)}
+\corres{Correspondence: e-mail@e-mail.com; Tel.:\ (optional; include country code; if there are multiple corresponding authors, add author initials) +xx-xxxx-xxx-xxxx (F.L.)}
 
 % Current address and/or shared authorship
 %\firstnote{Current address: Affiliation.}
@@ -128,21 +131,21 @@ $^{2}$ \quad Affiliation 2; e-mail@e-mail.com}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Introduction}
 
-Chain-of-Thought (CoT) prompting has become a standard technique for eliciting multi-step reasoning from large language models (LLMs). By encouraging models to emit intermediate steps, CoT can substantially improve performance on arithmetic and symbolic benchmarks \cite{wei-2022-chain}, and even a minimal trigger phrase can induce similar behavior in a zero-shot setting \cite{kojima-2022-large}. However, deploying CoT in real systems raises two intertwined concerns: cost and reliability.
+Chain-of-Thought (CoT) prompting has become a standard technique for eliciting multi-step reasoning from large language models (LLMs). By encouraging models to emit intermediate steps, CoT can substantially improve performance on arithmetic and symbolic benchmarks~\cite{wei-2022-chain}, and even a minimal trigger phrase can induce similar behavior in a zero-shot setting~\cite{kojima-2022-large}. However, deploying CoT in real systems raises two intertwined concerns: cost and reliability.
 
 First, deliberation is expensive. Generating multi-step rationales increases tokens, latency, and energy, and the extra computation is not always justified: many inputs are easy enough for a direct answer to succeed. Second, the presence of a rationale does not guarantee correctness. Models can generate explanations that are fluent yet weakly connected to the final answer, or that rationalize an answer after the fact. In such cases, aggregating multiple CoT samples can yield high confidence in an incorrect answer if many samples share correlated errors.
 
-A popular inference-time improvement is self-consistency: sample multiple CoT outputs and pick the plurality final answer. This reduces variance but implicitly treats all sampled traces as equally trustworthy evidence. In settings where unsupported but persuasive traces are common, exchangeable voting can amplify the wrong answer. Meanwhile, a complementary line of work argues that CoT can actively harm performance on tasks where added deliberation introduces noise or distracts from a correct heuristic, paralleling human overthinking \cite{borges-2023-mind}. This suggests that compute allocation should be selective rather than always-on.
+A popular inference-time improvement is self-consistency: sample multiple CoT outputs and pick the plurality final answer. This reduces variance but implicitly treats all sampled traces as equally trustworthy evidence. In settings where unsupported but persuasive traces are common, exchangeable voting can amplify the wrong answer. Meanwhile, a complementary line of work argues that CoT can actively harm performance on tasks where added deliberation introduces noise or distracts from a correct heuristic, paralleling human overthinking~\cite{borges-2023-mind}. This suggests that compute allocation should be selective rather than always-on.
 
 This paper investigates a training-free approach to selective and quality-aware CoT at inference time. We frame inference as a sequential decision and evidence fusion problem. The method begins with a fast System-1 stage that samples short direct answers to form an empirical distribution over candidate numeric outputs. From this distribution we derive uncertainty statistics (maximum probability and entropy) and use a gate to decide whether the question warrants deliberation. If System-1 is stable, the method returns immediately; otherwise it enters System-2 and samples CoT traces. Crucially, System-2 does not treat each trace as an exchangeable vote. Instead, it estimates how much a given rationale supports its own proposed answer using a self-entailment likelihood ratio computed through teacher-forced log-likelihood with the same model. Conceptually, this operationalizes a coherence check: conditioning on the rationale should not decrease, and ideally should increase, the model's probability of the proposed answer. The method further supports early stopping when the posterior induced by accumulated evidence becomes sufficiently concentrated.
 
-Our motivation is aligned with calls for Bayesian meta-reasoning as a unifying perspective on robust, generalizable LLM reasoning \cite{arves-2024-position} and with recent interest in controlling inference-time ``thinking speed'' \cite{goren-2024-controlling}. At the same time, we impose strict constraints: no fine-tuning, no additional models, and no external verifiers. This setting is attractive for broad applicability but leaves little room to correct systematic model errors.
+Our motivation is aligned with calls for Bayesian meta-reasoning as a unifying perspective on robust, generalizable LLM reasoning~\cite{arves-2024-position} and with recent interest in controlling inference-time ``thinking speed''~\cite{goren-2024-controlling}. At the same time, we impose strict constraints: no fine-tuning, no additional models, and no external verifiers. This setting is attractive for broad applicability but leaves little room to correct systematic model errors.
 
-We implement DT-SEACoT in a small, reproducible codebase and evaluate it on GSM8K, a grade-school math benchmark where CoT often helps but is costly \cite{wei-2022-chain}. The experimental design includes hyperparameter tuning on a held-out slice with Optuna and final reporting on a separate slice. The available run demonstrates that the method does allocate compute adaptively, frequently stopping after only a few CoT samples. However, the run also yields very low absolute accuracy. Rather than treating this as a mere failure, we present it as an academically useful negative result: it highlights how training-free posterior construction and stopping rules can be severely miscalibrated, and how small implementation choices (for example, how answer strings are represented for likelihood scoring) can dominate outcomes.
+We implement DT-SEACoT in a small, reproducible codebase and evaluate it on GSM8K, a grade-school math benchmark where CoT often helps but is costly~\cite{wei-2022-chain}. The experimental design includes hyperparameter tuning on a held-out slice with Optuna and final reporting on a separate slice. The available run demonstrates that the method does allocate compute adaptively, frequently stopping after only a few CoT samples. However, the run also yields very low absolute accuracy. Rather than treating this as a mere failure, we present it as an academically useful negative result: it highlights how training-free posterior construction and stopping rules can be severely miscalibrated, and how small implementation choices (for example, how answer strings are represented for likelihood scoring) can dominate outcomes.
 
 Contributions:
 \begin{itemize}
-\item \textbf{Adaptive training-free CoT inference.} We specify a training-free adaptive CoT inference procedure that combines uncertainty-based gating with a self-entailment likelihood ratio computed via teacher-forced scoring in the same LLM.
+\item \textbf{Adaptive training-free CoT inference.} We specify a training-free adaptive CoT inference procedure that combines uncertainty-based gating with a self-entailment likelihood ratio computed via teacher-forced scoring in the same LLM\@.
 \item \textbf{Reproducible GSM8K instantiation.} We document an end-to-end instantiation on GSM8K with \texttt{google/flan-t5-large}, including prompts, parsing rules, and an explicit early stopping criterion.
 \item \textbf{Negative result and analysis.} We report logged results from the provided run and analyze why strong adaptivity can coincide with poor task accuracy, emphasizing mismatches between the intended and implemented fusion rules and the need for calibrated sequential stopping.
 \end{itemize}
@@ -153,19 +156,19 @@ Looking forward, our findings suggest several directions: integrating absolute a
 \section{Related Work}
 
 \subsection{Chain-of-Thought prompting and zero-shot reasoning}
-CoT prompting showed that intermediate reasoning steps can unlock strong performance gains on arithmetic reasoning, including GSM8K, especially in large models \cite{wei-2022-chain}. Zero-shot-CoT demonstrated that even without demonstrations, a short trigger phrase can elicit step-by-step reasoning behavior \cite{kojima-2022-large}. Our work keeps the same inference-only spirit but addresses a different question: given that CoT is available, how should a system decide when to use it and how should it aggregate multiple traces?
+CoT prompting showed that intermediate reasoning steps can unlock strong performance gains on arithmetic reasoning, including GSM8K, especially in large models~\cite{wei-2022-chain}. Zero-shot-CoT demonstrated that even without demonstrations, a short trigger phrase can elicit step-by-step reasoning behavior~\cite{kojima-2022-large}. Our work keeps the same inference-only spirit but addresses a different question: given that CoT is available, how should a system decide when to use it and how should it aggregate multiple traces?
 
 \subsection{When ``thinking'' hurts: overthinking and compute allocation}
-Prior evidence shows that CoT can reduce performance on problems where deliberation introduces noise, echoing human overthinking \cite{borges-2023-mind}. This observation motivates fast-to-slow patterns where a cheap initial policy is used unless uncertainty is high. DT-SEACoT instantiates this intuition using an empirical uncertainty estimate derived from multiple short direct samples. In contrast to approaches that always generate a rationale, our gate explicitly permits skipping CoT.
+Prior evidence shows that CoT can reduce performance on problems where deliberation introduces noise, echoing human overthinking~\cite{borges-2023-mind}. This observation motivates fast-to-slow patterns where a cheap initial policy is used unless uncertainty is high. DT-SEACoT instantiates this intuition using an empirical uncertainty estimate derived from multiple short direct samples. In contrast to approaches that always generate a rationale, our gate explicitly permits skipping CoT.
 
 \subsection{Meta-reasoning perspectives on LLM inference}
-A broader position advocates Bayesian meta-reasoning as a lens for robust and generalizable reasoning, emphasizing uncertainty and value of computation \cite{arves-2024-position}. DT-SEACoT operationalizes a lightweight version of this idea at inference time: it maintains a belief over candidate answers, sequentially accumulates evidence, and provides an early stopping rule based on posterior concentration. Our contribution is not a new learned model, but rather a training-free procedure that can be layered on top of an existing LLM.
+A broader position advocates Bayesian meta-reasoning as a lens for robust and generalizable reasoning, emphasizing uncertainty and value of computation~\cite{arves-2024-position}. DT-SEACoT operationalizes a lightweight version of this idea at inference time: it maintains a belief over candidate answers, sequentially accumulates evidence, and provides an early stopping rule based on posterior concentration. Our contribution is not a new learned model, but rather a training-free procedure that can be layered on top of an existing LLM\@.
 
 \subsection{Controlling inference-time ``thinking speed''}
-Work on controlling thinking speed argues that inference-time control of computation is important for practical deployment \cite{goren-2024-controlling}. DT-SEACoT differs in three ways: it is training-free, uses a single fixed model for both generation and scoring, and grounds its adaptivity in a sequential evidence process rather than a purely prompt-level or length-level knob.
+Work on controlling thinking speed argues that inference-time control of computation is important for practical deployment~\cite{goren-2024-controlling}. DT-SEACoT differs in three ways: it is training-free, uses a single fixed model for both generation and scoring, and grounds its adaptivity in a sequential evidence process rather than a purely prompt-level or length-level knob.
 
 \subsection{Prompt construction and evidence aggregation beyond exchangeable voting}
-Automatic prompt selection and construction can improve the raw quality of CoT generations \cite{maltese-2023-automatic}. This direction is complementary to ours. Even with a strong prompt, aggregation remains non-trivial: sampled traces can still contain correlated errors or unsupported conclusions. DT-SEACoT focuses on inference control and evidence weighting given fixed prompts, rather than searching for new prompts.
+Automatic prompt selection and construction can improve the raw quality of CoT generations~\cite{maltese-2023-automatic}. This direction is complementary to ours. Even with a strong prompt, aggregation remains non-trivial: sampled traces can still contain correlated errors or unsupported conclusions. DT-SEACoT focuses on inference control and evidence weighting given fixed prompts, rather than searching for new prompts.
 
 The defining contrast with standard self-consistency is that DT-SEACoT does not treat sampled rationales as equally reliable votes. It uses a self-entailment likelihood ratio to discount traces whose rationales do not increase support for their own answers. Unlike verifier-based approaches (not considered here), this signal is derived solely from the base model via teacher-forced likelihoods, preserving the training-free and single-model constraint.
 
@@ -217,7 +220,7 @@ When System-2 is triggered, DT-SEACoT uses a CoT prompt that requests step-by-st
 \end{quote}
 It generates up to $K_{\max}$ samples at temperature \texttt{cot\_temperature} with cap \texttt{cot\_max\_tokens}. For each generated completion $t$, it parses a numeric answer $y$. If parsing fails, the sample is discarded.
 
-If \texttt{use\_self\_entailment} is enabled, DT-SEACoT computes a self-entailment score for this sample using teacher forcing in the same model. Let \texttt{answer\_str} be the string form of the parsed float, \texttt{answer\_str = str(y)}. It computes:
+If \texttt{use\_self\_entailment} is enabled, DT-SEACoT computes a self-entailment score for this sample using teacher forcing in the same model. Let \texttt{answer\_str} be the string form of the parsed float, \texttt{answer\_str = str(y) }. It computes:
 \begin{enumerate}
 \item $\ell\ell_{\text{direct}} = \log p_{\theta}(\texttt{answer\_str} \mid \texttt{direct\_prompt})$
 \item $\ell\ell_{\text{with\_rationale}} = \log p_{\theta}(\texttt{answer\_str} \mid \texttt{r2a\_prompt})$
@@ -229,7 +232,7 @@ where \texttt{r2a\_prompt} has the form:
 The evidence weight for the sample is $\Delta \ell\ell = \ell\ell_{\text{with\_rationale}} - \ell\ell_{\text{direct}}$. If \texttt{use\_self\_entailment} is disabled, \texttt{evidence\_weight} is set to $0.0$, yielding a uniform-weight aggregation variant.
 
 \subsection{Answer-level evidence fusion}
-The method maintains a dictionary mapping each observed answer value $y$ to a log-weight. For the first observation of $y$, it sets \texttt{log\_weight[$y$]} $\leftarrow$ \texttt{evidence\_weight}. For subsequent observations of the same $y$, it updates \texttt{log\_weight[$y$]} using \texttt{logaddexp(old, evidence\_weight)}. This corresponds to summing unnormalized evidence contributions in the probability domain while maintaining numerical stability.
+The method maintains a dictionary mapping each observed answer value $y$ to a log-weight. For the first observation of $y$, it sets \texttt{log\_weight[$y$] } $\leftarrow$ \texttt{evidence\_weight}. For subsequent observations of the same $y$, it updates \texttt{log\_weight[$y$] } using \texttt{logaddexp(old, evidence\_weight)}. This corresponds to summing unnormalized evidence contributions in the probability domain while maintaining numerical stability.
 
 \subsection{Early stopping}
 If \texttt{early\_stop\_enabled} is true, DT-SEACoT begins checking for early stopping after at least three CoT samples have been generated. It converts the current log-weights into a normalized posterior over the set of observed candidate answers by exponentiating after subtracting the maximum log-weight and normalizing. If the maximum posterior probability exceeds \texttt{early\_stop\_posterior\_threshold}, sampling halts and the current top answer is returned.
@@ -238,31 +241,31 @@ If \texttt{early\_stop\_enabled} is true, DT-SEACoT begins checking for early st
 \begin{algorithm}[H]
 \caption{DT-SEACoT inference (as implemented)}
 \begin{algorithmic}
-\State Build \texttt{direct\_prompt} from question $q$
-\State Sample $n_{0}$ direct completions; parse numeric answers into multiset $\mathcal{Y}_{0}$
-\State Form empirical distribution $p_{0}$ over values in $\mathcal{Y}_{0}$; compute \texttt{max\_prob} and \texttt{entropy}
+\State Build \texttt{direct\_prompt} from question $q$%
+\State Sample $n_{0}$ direct completions; parse numeric answers into multiset $\mathcal{Y}_{0}$%
+\State Form empirical distribution $p_{0}$ over values in $\mathcal{Y}_{0}$; compute \texttt{max\_prob} and \texttt{entropy}%
 \If{$\mathcal{Y}_{0} \neq \emptyset$ \textbf{and} \texttt{max\_prob} $\ge$ \texttt{gate\_confidence\_threshold} \textbf{and} \texttt{entropy} $\le$ \texttt{gate\_entropy\_threshold}}
-  \State \Return most frequent $y \in \mathcal{Y}_{0}$
-\EndIf
-\State Initialize map $w(y) \leftarrow -\infty$ for all observed $y$
+  \State \Return most frequent $y \in \mathcal{Y}_{0}$%
+\EndIf%
+\State Initialize map $w(y) \leftarrow -\infty$ for all observed $y$%
 \For{$k = 1$ to $K_{\max}$}
-  \State Sample CoT completion $t$; parse answer $y$; \textbf{continue} if parsing fails
+  \State Sample CoT completion $t$; parse answer $y$; \textbf{continue} if parsing fails%
   \If{\texttt{use\_self\_entailment}}
-    \State Compute $\ell\ell_{\text{direct}} \leftarrow \log p_{\theta}(\texttt{str}(y) \mid \texttt{direct\_prompt})$
-    \State Compute $\ell\ell_{\text{with\_rationale}} \leftarrow \log p_{\theta}(\texttt{str}(y) \mid \texttt{r2a\_prompt}(q,t))$
-    \State $e \leftarrow \ell\ell_{\text{with\_rationale}} - \ell\ell_{\text{direct}}$
-  \Else
-    \State $e \leftarrow 0$
-  \EndIf
+    \State Compute $\ell\ell_{\text{direct}} \leftarrow \log p_{\theta}(\texttt{str}(y) \mid \texttt{direct\_prompt})$%
+    \State Compute $\ell\ell_{\text{with\_rationale}} \leftarrow \log p_{\theta}(\texttt{str}(y) \mid \texttt{r2a\_prompt}(q,t))$%
+    \State $e \leftarrow \ell\ell_{\text{with\_rationale}} - \ell\ell_{\text{direct}}$%
+  \Else%
+    \State $e \leftarrow 0$%
+  \EndIf%
   \State $w(y) \leftarrow \log\big(\exp(w(y)) + \exp(e)\big)$ \Comment{\texttt{logaddexp}}
   \If{\texttt{early\_stop\_enabled} \textbf{and} $k \ge 3$}
-    \State Normalize $w$ over observed answers to posterior $\pi$
+    \State Normalize $w$ over observed answers to posterior $\pi$%
     \If{$\max_{y} \pi(y) >$ \texttt{early\_stop\_posterior\_threshold}}
-      \State \Return $\arg\max_{y} \pi(y)$
-    \EndIf
-  \EndIf
-\EndFor
-\State \Return $\arg\max_{y} \pi(y)$ over observed answers
+      \State \Return $\arg\max_{y} \pi(y)$%
+    \EndIf%
+  \EndIf%
+\EndFor%
+\State \Return $\arg\max_{y} \pi(y)$ over observed answers%
 \end{algorithmic}
 \end{algorithm}
 
@@ -330,7 +333,7 @@ The run reports \texttt{avg\_tokens\_per\_question} $= 2073.6$. In the code, thi
 The combination of $94\%$ early stopping and $5.33\%$ accuracy suggests that the internal posterior used to stop is severely misaligned with correctness: the method becomes confident quickly but is often wrong. The provided analysis points to two plausible contributors grounded in the implementation:
 \begin{enumerate}
 \item Evidence term mismatch: the intended DT-SEACoT design includes combining a System-1 prior and an absolute direct answer likelihood term with the self-entailment ratio. The implementation uses only the ratio $\Delta \ell\ell$, which measures relative change in support and does not ensure absolute plausibility of $y$ under the direct prompt.
-\item Answer string representation for scoring: teacher-forced likelihoods are computed on answer strings produced by \texttt{str(y)} where $y$ is a parsed float. This can change formatting relative to what the model would naturally produce (for example, dropping trailing zeros), injecting noise into likelihood ratios.
+\item Answer string representation for scoring: teacher-forced likelihoods are computed on answer strings produced by \texttt{str(y)} where $y$ is a parsed float. This can change formatting relative to what the model would naturally produce~(for example, dropping trailing zeros), injecting noise into likelihood ratios.
 \end{enumerate}
 
 \subsection{Limitations of the current empirical evidence}
@@ -354,7 +357,7 @@ This negative result is still informative. It highlights that training-free post
 \vspace{6pt}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\authorcontributions{For research articles with several authors, a short paragraph specifying their individual contributions must be provided. The following statements should be used ``Conceptualization, X.X. and Y.Y.; methodology, X.X.; software, X.X.; validation, X.X., Y.Y. and Z.Z.; formal analysis, X.X.; investigation, X.X.; resources, X.X.; data curation, X.X.; writing---original draft preparation, X.X.; writing---review and editing, X.X.; visualization, X.X.; supervision, X.X.; project administration, X.X.; funding acquisition, Y.Y. All authors have read and agreed to the published version of the manuscript.'', please turn to the  \href{http://img.mdpi.org/data/contributor-role-instruction.pdf}{CRediT taxonomy} for the term explanation. Authorship must be limited to those who have contributed substantially to the work~reported.}
+\authorcontributions{For research articles with several authors, a short paragraph specifying their individual contributions must be provided. The following statements should be used: ``Conceptualization, X.X. and Y.Y.; methodology, X.X.; software, X.X.; validation, X.X., Y.Y. and Z.Z.; formal analysis, X.X.; investigation, X.X.; resources, X.X.; data curation, X.X.; writing---original draft preparation, X.X.; writing---review and editing, X.X.; visualization, X.X.; supervision, X.X.; project administration, X.X.; funding acquisition, Y.Y. All authors have read and agreed to the published version of the manuscript.'', please turn to the  \href{http://img.mdpi.org/data/contributor-role-instruction.pdf}{CRediT taxonomy} for the term explanation. Authorship must be limited to those who have contributed substantially to the work~reported.}
 
 \funding{This research received no external funding.}
 
