@@ -21,9 +21,34 @@ plt.rcParams['figure.figsize'] = (10, 6)
 plt.rcParams['font.size'] = 10
 
 
+# [VALIDATOR FIX - Attempt 2]
+# [PROBLEM]: TypeError: Object of type SummarySubDict is not JSON serializable
+# [CAUSE]: WandB's SummarySubDict and other special types don't inherit from dict in a way that isinstance catches, and nested values can still contain non-serializable types
+# [FIX]: Check for dict-like objects using hasattr for items() method, and convert numpy/special numeric types
+#
+# [OLD CODE]:
+# def _convert_wandb_to_dict(obj):
+#     """
+#     Recursively convert WandB special dict types to plain Python dicts.
+#     
+#     Args:
+#         obj: Object to convert (can be dict, list, or primitive)
+#         
+#     Returns:
+#         Plain Python object (dict, list, or primitive)
+#     """
+#     if isinstance(obj, dict):
+#         return {key: _convert_wandb_to_dict(value) for key, value in obj.items()}
+#     elif isinstance(obj, list):
+#         return [_convert_wandb_to_dict(item) for item in obj]
+#     else:
+#         return obj
+#
+# [NEW CODE]:
 def _convert_wandb_to_dict(obj):
     """
     Recursively convert WandB special dict types to plain Python dicts.
+    Handles SummarySubDict, numpy types, and other non-serializable types.
     
     Args:
         obj: Object to convert (can be dict, list, or primitive)
@@ -31,10 +56,21 @@ def _convert_wandb_to_dict(obj):
     Returns:
         Plain Python object (dict, list, or primitive)
     """
-    if isinstance(obj, dict):
+    # Handle dict-like objects (including WandB SummarySubDict)
+    if hasattr(obj, 'items') and callable(getattr(obj, 'items')):
         return {key: _convert_wandb_to_dict(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
+    # Handle list-like objects
+    elif isinstance(obj, (list, tuple)):
         return [_convert_wandb_to_dict(item) for item in obj]
+    # Handle numpy types
+    elif hasattr(obj, 'item'):  # numpy scalars have .item() method
+        return obj.item()
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    # Handle other numeric types that might not be JSON-serializable
+    elif isinstance(obj, (np.integer, np.floating)):
+        return float(obj) if isinstance(obj, np.floating) else int(obj)
+    # Return primitives as-is
     else:
         return obj
 
@@ -122,8 +158,9 @@ def export_per_run_metrics(results_dir: Path, run_id: str, data: Dict[str, Any])
     else:
         metrics = data
     
+    # Apply conversion to ensure all types are JSON-serializable
     with open(metrics_path, 'w') as f:
-        json.dump(metrics, f, indent=2)
+        json.dump(_convert_wandb_to_dict(metrics), f, indent=2)
     
     print(f"Exported metrics: {metrics_path}")
 
@@ -304,10 +341,10 @@ def export_aggregated_metrics(results_dir: Path, all_run_data: Dict[str, Dict], 
         'gap': gap,
     }
     
-    # Export
+    # Export - apply conversion to handle any remaining non-serializable types
     aggregated_path = comparison_dir / "aggregated_metrics.json"
     with open(aggregated_path, 'w') as f:
-        json.dump(aggregated, f, indent=2)
+        json.dump(_convert_wandb_to_dict(aggregated), f, indent=2)
     
     print(f"\nAggregated metrics:")
     print(f"  Primary metric: {primary_metric}")
