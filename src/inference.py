@@ -109,9 +109,35 @@ def run_dt_seacot_inference(cfg: DictConfig, model: T5InferenceModel, dataset: L
         # System-2: CoT deliberation with self-entailment weighting
         skipped_deliberation.append(0)
         
-        # Initialize answer weights (in log-space for numerical stability)
+        # [VALIDATOR FIX - Attempt 3]
+        # [PROBLEM]: 6% accuracy - model predictions are very wrong
+        # [CAUSE]: System-2 weights are not initialized from System-1 prior as described in the
+        #          experimental design. The design states: "log W[y] ← δ·log(p0(y)+ε)" to initialize
+        #          from System-1 beliefs before adding CoT evidence. Without this, the gating is
+        #          effectively ignored and all answers start from zero weight.
+        # [FIX]: Initialize answer_weights from the System-1 probability distribution (direct_answers)
+        #        using a small weight factor (delta=0.3) to give initial bias toward System-1 beliefs
+        #
+        # [OLD CODE]:
+        # answer_weights = {}  # answer -> log-weight
+        # answer_samples = {}  # answer -> list of (rationale, generation_text)
+        #
+        # [NEW CODE]:
+        
+        # Initialize answer weights from System-1 prior (in log-space)
         answer_weights = {}  # answer -> log-weight
         answer_samples = {}  # answer -> list of (rationale, generation_text)
+        
+        # Add System-1 prior beliefs (with small weight to avoid dominating CoT evidence)
+        delta_prior_weight = 0.3  # Weight on System-1 prior
+        if len(direct_answers) > 0:
+            answer_counts = Counter(direct_answers)
+            total = len(direct_answers)
+            for ans, count in answer_counts.items():
+                p0 = count / total
+                # Initialize log-weight: delta * log(p0 + eps)
+                answer_weights[ans] = delta_prior_weight * np.log(p0 + 1e-10)
+                answer_samples[ans] = []
         
         num_cot_generated = 0
         early_stopped = False
@@ -135,6 +161,20 @@ def run_dt_seacot_inference(cfg: DictConfig, model: T5InferenceModel, dataset: L
                 num_cot_generated += 1
                 continue
             
+            # [VALIDATOR FIX - Attempt 3]
+            # [PROBLEM]: 6% accuracy - very poor performance
+            # [CAUSE]: Evidence weighting formula is incomplete. The experimental design specifies:
+            #          log W[y] += alpha*LL_direct(y) + beta*ΔLL(y,r)
+            #          But the code only uses delta_ll. Missing the alpha*LL_direct term means answers
+            #          with high base probability (from model's training) are not rewarded properly.
+            # [FIX]: Implement the full evidence formula: alpha*ll_direct + beta*delta_ll
+            #
+            # [OLD CODE]:
+            # delta_ll = ll_with_rationale - ll_direct
+            # evidence_weight = delta_ll
+            #
+            # [NEW CODE]:
+            
             # Compute self-entailment likelihood ratio
             if inf_cfg.use_self_entailment:
                 # p(answer | question) - direct baseline
@@ -153,19 +193,42 @@ def run_dt_seacot_inference(cfg: DictConfig, model: T5InferenceModel, dataset: L
                 
                 # Self-entailment likelihood ratio
                 delta_ll = ll_with_rationale - ll_direct
-                evidence_weight = delta_ll
+                
+                # Full evidence formula per experimental design
+                alpha = 0.1  # Weight on direct likelihood
+                beta = 0.5   # Weight on self-entailment LR
+                evidence_weight = alpha * ll_direct + beta * delta_ll
             else:
                 # Uniform weighting (standard self-consistency)
-                evidence_weight = 0.0
+                evidence_weight = 1.0  # Count each sample equally in log-space
             
-            # Update answer weights
+            # [VALIDATOR FIX - Attempt 3]
+            # [PROBLEM]: 6% accuracy (9/150) - answers are very wrong
+            # [CAUSE]: Using np.logaddexp to accumulate evidence is incorrect. logaddexp(a,b) = log(exp(a)+exp(b))
+            #          which treats each sample as independent probability mass. But delta_ll (self-entailment LR)
+            #          can be negative, and we want to SUM evidence weights, not add probability masses.
+            #          The correct approach per the experimental design is to maintain log-weights and ADD
+            #          the evidence terms: log W[y] += alpha*LL_direct + beta*ΔLL
+            # [FIX]: Simply add evidence_weight to the log-weight instead of using logaddexp
+            #
+            # [OLD CODE]:
+            # if cot_answer not in answer_weights:
+            #     answer_weights[cot_answer] = evidence_weight
+            #     answer_samples[cot_answer] = [(cot_text, cot_text)]
+            # else:
+            #     old_weight = answer_weights[cot_answer]
+            #     answer_weights[cot_answer] = np.logaddexp(old_weight, evidence_weight)
+            #     answer_samples[cot_answer].append((cot_text, cot_text))
+            #
+            # [NEW CODE]:
+            
+            # Update answer weights (accumulate evidence in log-space)
             if cot_answer not in answer_weights:
                 answer_weights[cot_answer] = evidence_weight
                 answer_samples[cot_answer] = [(cot_text, cot_text)]
             else:
-                # Log-sum-exp for adding probabilities in log-space
-                old_weight = answer_weights[cot_answer]
-                answer_weights[cot_answer] = np.logaddexp(old_weight, evidence_weight)
+                # Simply add evidence weights (we're in log-space already)
+                answer_weights[cot_answer] += evidence_weight
                 answer_samples[cot_answer].append((cot_text, cot_text))
             
             num_cot_generated += 1
