@@ -21,6 +21,24 @@ plt.rcParams['figure.figsize'] = (10, 6)
 plt.rcParams['font.size'] = 10
 
 
+def _convert_wandb_to_dict(obj):
+    """
+    Recursively convert WandB special dict types to plain Python dicts.
+    
+    Args:
+        obj: Object to convert (can be dict, list, or primitive)
+        
+    Returns:
+        Plain Python object (dict, list, or primitive)
+    """
+    if isinstance(obj, dict):
+        return {key: _convert_wandb_to_dict(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_wandb_to_dict(item) for item in obj]
+    else:
+        return obj
+
+
 def fetch_wandb_run_data(entity: str, project: str, run_id: str) -> Dict[str, Any]:
     """
     Fetch run history, summary, and config from WandB API.
@@ -41,8 +59,16 @@ def fetch_wandb_run_data(entity: str, project: str, run_id: str) -> Dict[str, An
         # Get history (time series metrics)
         history = run.history()
         
-        # Get summary (final metrics)
-        summary = dict(run.summary)
+        # [VALIDATOR FIX - Attempt 1]
+        # [PROBLEM]: TypeError: Object of type SummarySubDict is not JSON serializable
+        # [CAUSE]: run.summary returns WandB SummarySubDict objects that are not plain Python dicts
+        # [FIX]: Recursively convert all WandB dict types to plain Python dicts
+        #
+        # [OLD CODE]:
+        # summary = dict(run.summary)
+        #
+        # [NEW CODE]:
+        summary = _convert_wandb_to_dict(dict(run.summary))
         
         # Get config
         config = dict(run.config)
