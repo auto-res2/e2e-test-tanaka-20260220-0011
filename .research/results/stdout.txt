@@ -13,3 +13,18 @@ Created figure: .research/results/proposed-flan-t5-large-gsm8k/metrics_summary_p
 Evaluation complete!
 ================================================================================
 === [VISUALIZATION] PASSED at Fri Feb 20 12:59:45 UTC 2026 ===
+=== [VISUALIZATION] Start at Fri Feb 20 13:06:56 UTC 2026 ===
+Evaluating 2 runs: ['comparative-1-flan-t5-large-gsm8k', 'proposed-flan-t5-large-gsm8k']
+
+Processing comparative-1-flan-t5-large-gsm8k...
+Warning: Could not fetch WandB data for comparative-1-flan-t5-large-gsm8k: Could not find run <Run airas/2026-02-19/comparative-1-flan-t5-large-gsm8k (not found)>
+Warning: No data found for comparative-1-flan-t5-large-gsm8k
+
+Processing proposed-flan-t5-large-gsm8k...
+Exported metrics: .research/results/proposed-flan-t5-large-gsm8k/metrics.json
+Created figure: .research/results/proposed-flan-t5-large-gsm8k/metrics_summary_proposed-flan-t5-large-gsm8k.pdf
+
+================================================================================
+Evaluation complete!
+================================================================================
+=== [VISUALIZATION] PASSED at Fri Feb 20 13:07:03 UTC 2026 ===
