@@ -196,9 +196,42 @@ def create_per_run_figures(results_dir: Path, run_id: str, data: Dict[str, Any])
             metric_values.append(value)
     
     if len(metric_names) > 0:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.barh(metric_names, metric_values)
-        ax.set_xlabel('Value')
+        # [VALIDATOR FIX - Attempt 1]
+        # [PROBLEM]: Metrics with vastly different scales (0.05 vs 2073) render small values invisible
+        # [CAUSE]: Using single linear scale for all metrics regardless of magnitude
+        # [FIX]: Normalize metrics to [0,1] range to show all values, display actual values as annotations
+        #
+        # [OLD CODE]:
+        # fig, ax = plt.subplots(figsize=(10, 6))
+        # ax.barh(metric_names, metric_values)
+        # ax.set_xlabel('Value')
+        # ax.set_title(f'Metrics for {run_id}')
+        #
+        # [NEW CODE]:
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # Normalize values to [0, 1] for visualization
+        max_val = max(metric_values) if metric_values else 1
+        normalized_values = [v / max_val for v in metric_values]
+        
+        # Create bars with normalized values
+        bars = ax.barh(metric_names, normalized_values)
+        
+        # Add actual value annotations at the end of each bar
+        for i, (bar, actual_val) in enumerate(zip(bars, metric_values)):
+            width = bar.get_width()
+            # Format value: use scientific notation for very large/small values
+            if abs(actual_val) >= 1000 or (abs(actual_val) < 0.01 and actual_val != 0):
+                label = f'{actual_val:.2e}'
+            elif abs(actual_val) < 1:
+                label = f'{actual_val:.4f}'
+            else:
+                label = f'{actual_val:.2f}'
+            
+            ax.text(width + 0.02, i, label, va='center', fontsize=9, fontweight='bold')
+        
+        ax.set_xlabel('Normalized Value (scaled to max)')
+        ax.set_xlim(0, 1.15)  # Extra space for labels
         ax.set_title(f'Metrics for {run_id}')
         plt.tight_layout()
         
